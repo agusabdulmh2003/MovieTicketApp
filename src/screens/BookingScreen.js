@@ -1,58 +1,53 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, FlatList, Alert } from 'react-native';
-import { fetchSeats, processPayment } from '../utils/api';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useState } from 'react';
+import { View, Text, TextInput, Button, Alert } from 'react-native';
+import { WebView } from 'react-native-webview';
 
-const BookingScreen = ({ route, navigation }) => {
-    const { movie } = route.params;
-    const [seats, setSeats] = useState([]);
-    const [selectedSeats, setSelectedSeats] = useState([]);
+const BookingScreen = ({ navigation }) => {
+    const [email, setEmail] = useState('');
+    const [movie, setMovie] = useState('1'); // Default film
+    const [seats, setSeats] = useState('');
 
-    useEffect(() => {
-        fetchSeats(movie.id).then(setSeats).catch(console.error);
-    }, []);
+    const createOrder = async () => {
+        const response = await fetch('http://127.0.0.1:8000/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, movie_id: movie, seats: seats.split(','), total_price: 50000 })
+        });
+        const data = await response.json();
 
-    const toggleSeatSelection = (seatId) => {
-        setSelectedSeats(prev => prev.includes(seatId) ? prev.filter(id => id !== seatId) : [...prev, seatId]);
-    };
+        if (data.id) {
+            // Panggil API pembayaran Midtrans
+            const paymentResponse = await fetch('http://127.0.0.1:8000/api/payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: data.id })
+            });
+            const paymentData = await paymentResponse.json();
 
-    const handlePayment = async () => {
-        if (selectedSeats.length === 0) return Alert.alert('Error', 'Please select at least one seat');
-
-        try {
-            const ticket = await processPayment(movie.id, selectedSeats);
-            await AsyncStorage.setItem('ticket', JSON.stringify(ticket));
-            navigation.navigate('TicketScreen', { ticket });
-        } catch (error) {
-            console.error('Payment error:', error);
+            if (paymentData.snap_token) {
+                navigation.navigate('Payment', { snapUrl: `https://app.sandbox.midtrans.com/snap/v2/vtweb/${paymentData.snap_token}` });
+            } else {
+                Alert.alert('Error', 'Gagal membuat transaksi pembayaran');
+            }
+        } else {
+            Alert.alert('Error', 'Gagal membuat pesanan');
         }
     };
 
     return (
         <View style={{ padding: 20 }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>{movie.title}</Text>
-            <FlatList
-                data={seats}
-                keyExtractor={(item) => item.id.toString()}
-                numColumns={5}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
-                        style={{ padding: 10, margin: 5, backgroundColor: selectedSeats.includes(item.id) ? 'green' : 'gray', borderRadius: 10 }}
-                        onPress={() => toggleSeatSelection(item.id)}
-                    >
-                        <Text style={{ color: '#fff' }}>{item.number}</Text>
-                    </TouchableOpacity>
-                )}
-            />
-            <TouchableOpacity
-                style={{ padding: 15, backgroundColor: 'blue', marginTop: 20, borderRadius: 10 }}
-                onPress={handlePayment}
-            >
-                <Text style={{ color: '#fff', textAlign: 'center' }}>Proceed to Payment</Text>
-            </TouchableOpacity>
+            <Text>Email:</Text>
+            <TextInput style={{ borderBottomWidth: 1, marginBottom: 10 }} value={email} onChangeText={setEmail} />
+            
+            <Text>Movie:</Text>
+            <TextInput style={{ borderBottomWidth: 1, marginBottom: 10 }} value={movie} onChangeText={setMovie} />
+
+            <Text>Seats (pisahkan dengan koma):</Text>
+            <TextInput style={{ borderBottomWidth: 1, marginBottom: 10 }} value={seats} onChangeText={setSeats} />
+
+            <Button title="Book Ticket" onPress={createOrder} />
         </View>
     );
 };
 
 export default BookingScreen;
-
